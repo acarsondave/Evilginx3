@@ -34,12 +34,12 @@ NC='\033[0m' # No Color
 
 # Configuration
 GO_VERSION="1.22.0"
-INSTALL_DIR="/opt/evilginx"
-SERVICE_USER="evilginx"
+INSTALL_DIR="/usr/local/evilginx"
+SERVICE_USER="root"  # Run as admin
 CONFIG_DIR="/etc/evilginx"
 LOG_DIR="/var/log/evilginx"
-PHISHLETS_DIR="$INSTALL_DIR/phishlets"
-REDIRECTORS_DIR="$INSTALL_DIR/redirectors"
+PHISHLETS_DIR="/usr/local/evilginx/phishlets"
+REDIRECTORS_DIR="/usr/local/evilginx/redirectors"
 
 #############################################################################
 # Helper Functions
@@ -128,7 +128,7 @@ confirm_installation() {
    1. Install Go $GO_VERSION and dependencies
    2. Stop and disable Apache2/Nginx (if installed)
    3. Configure UFW firewall (ports 22, 53, 80, 443)
-   4. Create system user: $SERVICE_USER
+   4. Create directories with admin privileges
    5. Install Evilginx to: $INSTALL_DIR
    6. Create systemd service: evilginx.service
    7. Enable automatic startup
@@ -231,26 +231,24 @@ install_go() {
     
     log_success "Go $GO_VERSION installed successfully"
     /usr/local/go/bin/go version
+    
+    # Return to original directory
+    cd - > /dev/null
 }
 
-create_service_user() {
-    log_step "Step 4: Creating Service User"
+setup_directories() {
+    log_step "Step 4: Creating Directories (Admin Mode)"
     
-    if id "$SERVICE_USER" &>/dev/null; then
-        log_warning "User $SERVICE_USER already exists"
-    else
-        useradd -r -s /bin/bash -d "$INSTALL_DIR" -m "$SERVICE_USER"
-        log_success "Created user: $SERVICE_USER"
-    fi
+    # Running as admin, no need to create a separate user
+    log_info "Running installation with admin privileges"
     
     # Create necessary directories
     mkdir -p "$CONFIG_DIR"
     mkdir -p "$LOG_DIR"
     
-    chown -R "$SERVICE_USER:$SERVICE_USER" "$CONFIG_DIR"
-    chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
+    # No need to change ownership when running as admin/root
     
-    log_success "Directories created and permissions set"
+    log_success "Directories created with admin privileges"
 }
 
 stop_conflicting_services() {
@@ -268,6 +266,75 @@ stop_conflicting_services() {
             log_info "$service not running (OK)"
         fi
     done
+}
+
+disable_systemd_resolved() {
+    log_step "Step 5.1: Disabling systemd-resolved (Port 53 Conflict)"
+    
+    # Check if systemd-resolved is installed
+    if ! systemctl list-unit-files | grep -q systemd-resolved.service 2>/dev/null; then
+        log_success "systemd-resolved is not installed - no action needed"
+        log_info "Port 53 is available for Evilginx DNS server"
+        return 0
+    fi
+    
+    log_warning "systemd-resolved detected - will disable to free port 53"
+    
+    # Stop systemd-resolved
+    if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+        log_info "Stopping systemd-resolved service..."
+        systemctl stop systemd-resolved || log_warning "Failed to stop systemd-resolved"
+        log_success "systemd-resolved stopped"
+    fi
+    
+    # Disable from auto-start
+    if systemctl is-enabled --quiet systemd-resolved 2>/dev/null; then
+        log_info "Disabling systemd-resolved from auto-start..."
+        systemctl disable systemd-resolved || log_warning "Failed to disable systemd-resolved"
+        log_success "systemd-resolved disabled"
+    fi
+    
+    # Mask to prevent activation
+    log_info "Masking systemd-resolved to prevent activation..."
+    systemctl mask systemd-resolved 2>/dev/null || log_warning "Failed to mask systemd-resolved"
+    
+    # Handle /etc/resolv.conf
+    log_info "Configuring /etc/resolv.conf..."
+    
+    # Backup existing resolv.conf
+    if [ -f /etc/resolv.conf ]; then
+        cp /etc/resolv.conf /etc/resolv.conf.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+    fi
+    
+    # Remove symlink if it exists
+    if [ -L /etc/resolv.conf ]; then
+        log_info "Removing /etc/resolv.conf symlink..."
+        rm -f /etc/resolv.conf
+    fi
+    
+    # Create static resolv.conf with public DNS servers
+    cat > /etc/resolv.conf << 'RESOLVEOF'
+# Static DNS configuration for Evilginx
+# systemd-resolved disabled to free port 53
+
+# Google Public DNS
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+
+# Cloudflare DNS (backup)
+nameserver 1.1.1.1
+
+# Options
+options timeout:2
+options attempts:3
+RESOLVEOF
+    
+    log_success "Static /etc/resolv.conf created with public DNS servers"
+    
+    # Make resolv.conf immutable (optional)
+    chattr +i /etc/resolv.conf 2>/dev/null || true
+    
+    log_success "systemd-resolved disabled - Port 53 available for Evilginx"
 }
 
 build_evilginx() {
@@ -300,14 +367,23 @@ build_evilginx() {
     
     log_success "Evilginx compiled successfully"
     
-    # Create installation directory
+    # Create system-wide installation directory
     mkdir -p "$INSTALL_DIR"
+    mkdir -p "$PHISHLETS_DIR"
     
     # Copy files
     log_info "Installing files to $INSTALL_DIR..."
-    cp -r "$SCRIPT_DIR/build/evilginx" "$INSTALL_DIR/"
-    cp -r "$SCRIPT_DIR/phishlets" "$INSTALL_DIR/"
+    cp "$SCRIPT_DIR/build/evilginx" "$INSTALL_DIR/evilginx.bin"
     cp -r "$SCRIPT_DIR/redirectors" "$INSTALL_DIR/"
+    
+    # Create wrapper script with default paths
+    log_info "Creating system-wide wrapper script..."
+    cat > /usr/local/bin/evilginx << 'EOF'
+#!/bin/bash
+# Evilginx wrapper with default paths
+exec /usr/local/evilginx/evilginx.bin -p /usr/local/evilginx/phishlets -t /usr/local/evilginx/redirectors "$@"
+EOF
+    chmod +x /usr/local/bin/evilginx
     
     # Copy documentation
     cp "$SCRIPT_DIR/README.md" "$INSTALL_DIR/" 2>/dev/null || true
@@ -315,10 +391,14 @@ build_evilginx() {
     cp "$SCRIPT_DIR/LURE_RANDOMIZATION_GUIDE.md" "$INSTALL_DIR/" 2>/dev/null || true
     
     # Set permissions
-    chmod +x "$INSTALL_DIR/evilginx"
-    chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+    chmod +x "$INSTALL_DIR/evilginx.bin"
+    chmod 755 "$INSTALL_DIR"
+    chmod -R 755 "$PHISHLETS_DIR"
+    chmod -R 755 "$REDIRECTORS_DIR"
+    # No need to change ownership when running as admin
     
-    log_success "Files installed to $INSTALL_DIR"
+    log_success "Files installed to $INSTALL_DIR (admin mode)"
+    log_success "System-wide command 'evilginx' is now available"
 }
 
 configure_firewall() {
@@ -402,10 +482,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=$SERVICE_USER
-Group=$SERVICE_USER
+User=root
+Group=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/evilginx -p $PHISHLETS_DIR -t $REDIRECTORS_DIR -c $CONFIG_DIR
+ExecStart=/usr/local/bin/evilginx -c $CONFIG_DIR
 Restart=on-failure
 RestartSec=10s
 StandardOutput=journal
@@ -494,7 +574,7 @@ EOF
     chmod +x /usr/local/bin/evilginx-logs
     
     # Create console script
-    cat > /usr/local/bin/evilginx-console << 'EOF'
+    cat > /usr/local/bin/evilginx-console << EOF
 #!/bin/bash
 echo "Stopping systemd service to run interactively..."
 sudo systemctl stop evilginx
@@ -502,8 +582,7 @@ echo ""
 echo "Starting Evilginx in interactive mode..."
 echo "Press Ctrl+C to stop, then run 'evilginx-start' to resume service mode"
 echo ""
-cd /opt/evilginx
-sudo -u evilginx ./evilginx -p ./phishlets -t ./redirectors -c /etc/evilginx
+evilginx -c /etc/evilginx
 EOF
     chmod +x /usr/local/bin/evilginx-console
     
@@ -522,12 +601,13 @@ display_completion() {
     log_step "Installation Summary"
     
     echo -e "${CYAN}Installation Details:${NC}"
-    echo "  • Evilginx Binary:      $INSTALL_DIR/evilginx"
+    echo "  • Evilginx Binary:      /usr/local/bin/evilginx (wrapper)"
+    echo "  • Actual Binary:        $INSTALL_DIR/evilginx.bin"
     echo "  • Phishlets Directory:  $PHISHLETS_DIR"
     echo "  • Redirectors Directory: $REDIRECTORS_DIR"
     echo "  • Configuration:        $CONFIG_DIR"
     echo "  • Logs:                 $LOG_DIR"
-    echo "  • Service User:         $SERVICE_USER"
+    echo "  • Running as:           Admin (root)"
     echo "  • Systemd Service:      evilginx.service"
     echo ""
     
@@ -537,6 +617,14 @@ display_completion() {
     echo "  • Port 53/udp  - DNS (allow)"
     echo "  • Port 80/tcp  - HTTP (allow)"
     echo "  • Port 443/tcp - HTTPS (allow)"
+    echo ""
+    
+    echo -e "${CYAN}Quick Usage:${NC}"
+    echo "  • sudo evilginx         - Run with default paths (phishlets & redirectors included)"
+    echo "  • sudo evilginx -debug  - Run in debug mode"
+    echo "  • sudo evilginx -developer - Run in developer mode"
+    echo ""
+    echo "  ${GREEN}No need to specify -p or -t flags anymore!${NC}"
     echo ""
     
     echo -e "${CYAN}Available Commands:${NC}"
@@ -623,8 +711,9 @@ main() {
     update_system
     install_dependencies
     install_go
-    create_service_user
+    setup_directories
     stop_conflicting_services
+    disable_systemd_resolved
     build_evilginx
     configure_firewall
     configure_fail2ban
