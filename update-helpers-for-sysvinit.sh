@@ -106,3 +106,4 @@ fi
 log_success "All helper scripts updated for sysvinit!"
 log_info "You can now use: evilginx-start, evilginx-stop, evilginx-restart, evilginx-status, evilginx-logs"
 
+

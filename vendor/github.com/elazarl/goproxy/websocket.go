@@ -94,7 +94,8 @@ func (proxy *ProxyHttpServer) websocketHandshake(ctx *ProxyCtx, req *http.Reques
 		return err
 	}
 
-	targetTLSReader := bufio.NewReader(targetSiteConn)
+	// Use larger buffer size (64KB) to prevent slice bounds errors
+	targetTLSReader := bufio.NewReaderSize(targetSiteConn, 65536)
 
 	// Read handshake response from target
 	resp, err := http.ReadResponse(targetTLSReader, req)

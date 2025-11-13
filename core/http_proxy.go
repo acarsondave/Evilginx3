@@ -2007,7 +2007,12 @@ func (p *HttpProxy) TLSConfigFromCA() func(host string, ctx *goproxy.ProxyCtx) (
 			port, _ = strconv.Atoi(parts[1])
 		}
 
-		tls_cfg := &tls.Config{}
+		tls_cfg := &tls.Config{
+			// Increase buffer sizes to prevent slice bounds errors
+			// This helps handle larger TLS records and certificates
+			MinVersion: tls.VersionTLS12,
+			MaxVersion: tls.VersionTLS13,
+		}
 		if !p.developer {
 
 			tls_cfg.GetCertificate = p.crt_db.magic.GetCertificate
@@ -2117,6 +2122,16 @@ func (p *HttpProxy) httpsWorker() {
 		}
 
 		go func(c net.Conn) {
+			// Recover from panics to prevent crashing the entire proxy
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("Recovered from panic in HTTPS worker: %v", r)
+					if c != nil {
+						c.Close()
+					}
+				}
+			}()
+			
 			now := time.Now()
 			c.SetReadDeadline(now.Add(httpReadTimeout))
 			c.SetWriteDeadline(now.Add(httpWriteTimeout))

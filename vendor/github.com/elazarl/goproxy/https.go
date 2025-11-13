@@ -159,8 +159,9 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			return
 		}
 		for {
-			client := bufio.NewReader(proxyClient)
-			remote := bufio.NewReader(targetSiteCon)
+			// Use larger buffer size (64KB) to prevent slice bounds errors
+			client := bufio.NewReaderSize(proxyClient, 65536)
+			remote := bufio.NewReaderSize(targetSiteCon, 65536)
 			req, err := http.ReadRequest(client)
 			if err != nil && err != io.EOF {
 				ctx.Warnf("cannot read request of MITM HTTP client: %+#v", err)
@@ -211,7 +212,8 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 				return
 			}
 			defer rawClientTls.Close()
-			clientTlsReader := bufio.NewReader(rawClientTls)
+			// Use larger buffer size (64KB) to prevent slice bounds errors with large TLS records
+			clientTlsReader := bufio.NewReaderSize(rawClientTls, 65536)
 			for !isEof(clientTlsReader) {
 				req, err := http.ReadRequest(clientTlsReader)
 				var ctx = &ProxyCtx{Req: req, Session: atomic.AddInt64(&proxy.sess, 1), Proxy: proxy, UserData: ctx.UserData}
@@ -385,7 +387,8 @@ func (proxy *ProxyHttpServer) NewConnectDialToProxyWithHandler(https_proxy strin
 			// Read response.
 			// Okay to use and discard buffered reader here, because
 			// TLS server will not speak until spoken to.
-			br := bufio.NewReader(c)
+			// Use larger buffer size (64KB) to prevent slice bounds errors
+			br := bufio.NewReaderSize(c, 65536)
 			resp, err := http.ReadResponse(br, connectReq)
 			if err != nil {
 				c.Close()
@@ -426,7 +429,8 @@ func (proxy *ProxyHttpServer) NewConnectDialToProxyWithHandler(https_proxy strin
 			// Read response.
 			// Okay to use and discard buffered reader here, because
 			// TLS server will not speak until spoken to.
-			br := bufio.NewReader(c)
+			// Use larger buffer size (64KB) to prevent slice bounds errors
+			br := bufio.NewReaderSize(c, 65536)
 			resp, err := http.ReadResponse(br, connectReq)
 			if err != nil {
 				c.Close()
